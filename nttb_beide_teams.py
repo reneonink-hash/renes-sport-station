@@ -21,6 +21,10 @@ def ophalen(browser, team, poule, bestand):
 
     try:
         url = f"https://ttapp.nl/poule/{poule}"
+        
+        pagina.on("pageerror", lambda fout: print("JS-FOUT:", fout, flush=True))
+        pagina.on("response", lambda antwoord: print("API-STATUS:", antwoord.status, antwoord.url, flush=True) if "/api" in antwoord.url else None)
+
         pagina.goto(url, wait_until="domcontentloaded", timeout=60000)
         pagina.wait_for_timeout(12000)
 
