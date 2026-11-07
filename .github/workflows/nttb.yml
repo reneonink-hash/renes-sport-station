@@ -28,8 +28,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: NTTB gegevens ophalen
-        run: python nttb_beide_teams.py
-
+        run: xvfb-run -a python nttb_beide_teams.py
       - name: JSON bestanden opslaan
         run: |
           git config user.name "github-actions[bot]"
