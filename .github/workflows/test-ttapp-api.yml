@@ -1,0 +1,44 @@
+
+name: Test TTapp API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deno installeren
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Beide poules testen
+        run: |
+          deno eval --allow-net '
+            import { TTApp } from "https://raw.githubusercontent.com/Kees-van-Beilen/TTAppAPI/main/mod.ts";
+
+            const api = new TTApp();
+
+            console.log("TTapp API verbinden...");
+
+            await api.login();
+
+            for (const [naam, nummer] of [
+              ["TIOS Dames 1", 5021894],
+              ["Het Markiezaat 11", 5022143]
+            ]) {
+              console.log("Ophalen:", naam);
+
+              try {
+                const data = await api.poule(nummer);
+                console.log("GELUKT:", naam);
+                console.log("Velden:", Object.keys(data));
+                console.log("Wedstrijden:", data.matches?.length ?? "onbekend");
+              } catch (fout) {
+                console.log("MISLUKT:", naam);
+                console.log("Fouttype:", fout?.name ?? "onbekend");
+              }
+            }
+          '
