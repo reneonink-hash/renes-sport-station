@@ -1,67 +1,98 @@
-"""Haal openbare TTapp-poulepagina's op via Playwright (ook in GitHub Actions)."""
+
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
+from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-POULES = [
-    ("TIOS Dames 1", "5021894", "tios", "TIOS '51 1"),
-    ("Markiezaat 11", "5022143", "markiezaat", "Het Markiezaat 11"),
+TEAMS = [
+    ("TIOS Dames 1", "5021894", "nttb_tios.json"),
+    ("Markiezaat 11", "5022143", "nttb_markiezaat.json"),
 ]
-UITVOERMAP = Path(__file__).resolve().parent
 
+def ophalen(browser, team, poule, bestand):
+    print(f"\nOphalen: {team} (poule {poule})", flush=True)
 
-def lees_tab(pagina, tabnaam, herkenning):
-    tab = pagina.get_by_text(tabnaam, exact=True).first
-    tab.wait_for(state="visible", timeout=25000)
-    tab.click(timeout=15000)
-    pagina.wait_for_function(
-        "([naam, tab]) => document.body.innerText.includes(naam) && "
-        "(tab === 'stand' ? document.body.innerText.includes('punten') : "
-        "document.body.innerText.includes('week '))",
-        arg=[herkenning, tabnaam],
-        timeout=30000,
+    pagina = browser.new_page(
+        viewport={"width": 1280, "height": 900},
+        locale="nl-NL"
     )
-    tekst = pagina.locator("body").inner_text(timeout=15000)
-    if herkenning.lower() not in tekst.lower():
-        raise RuntimeError(f"Team {herkenning} ontbreekt in tab {tabnaam}")
-    return tekst
+
+    try:
+        url = f"https://ttapp.nl/poule/{poule}"
+        pagina.goto(url, wait_until="domcontentloaded", timeout=60000)
+        pagina.wait_for_timeout(12000)
+
+        print("DIAGNOSE - URL:", pagina.url, flush=True)
+        print("DIAGNOSE - titel:", pagina.title(), flush=True)
+
+        tekst = pagina.locator("body").inner_text(timeout=10000)
+        print("DIAGNOSE - lengte zichtbare tekst:", len(tekst), flush=True)
+
+        wedstrijden = pagina.get_by_text("wedstrijden", exact=True)
+        stand = pagina.get_by_text("stand", exact=True)
+
+        print("DIAGNOSE - wedstrijden zichtbaar:",
+              wedstrijden.count(), flush=True)
+        print("DIAGNOSE - stand zichtbaar:",
+              stand.count(), flush=True)
+
+        if wedstrijden.count() == 0 or stand.count() == 0:
+            print("DIAGNOSE - melding:",
+                  repr(tekst[:500]), flush=True)
+            raise RuntimeError("TTapp tabbladen niet gevonden")
+
+        wedstrijden.first.click(timeout=15000)
+        pagina.wait_for_timeout(3000)
+        wedstrijden_tekst = pagina.locator("body").inner_text()
+
+        stand.first.click(timeout=15000)
+        pagina.wait_for_timeout(3000)
+        stand_tekst = pagina.locator("body").inner_text()
+
+        gegevens = {
+            "team": team,
+            "poule": poule,
+            "bijgewerkt": datetime.now().isoformat(timespec="seconds"),
+            "wedstrijden_tekst": wedstrijden_tekst,
+            "stand_tekst": stand_tekst
+        }
+
+        Path(bestand).write_text(
+            json.dumps(gegevens, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+        print(f"GELUKT: {bestand}", flush=True)
+        return True
+
+    except Exception as fout:
+        print(f"FOUT bij {team}: {type(fout).__name__}: {fout}",
+              flush=True)
+        return False
+
+    finally:
+        pagina.close()
 
 
 def main():
-    fouten = []
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+    mislukt = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+
         try:
-            for team, poule, naam, herkenning in POULES:
-                print(f"Ophalen: {team} (poule {poule})", flush=True)
-                pagina = browser.new_page(locale="nl-NL")
-                try:
-                    pagina.goto(f"https://ttapp.nl/poule/{poule}", wait_until="domcontentloaded", timeout=60000)
-                    wedstrijden = lees_tab(pagina, "wedstrijden", herkenning)
-                    stand = lees_tab(pagina, "stand", herkenning)
-                    gegevens = {
-                        "team": team,
-                        "poule": poule,
-                        "bijgewerkt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                        "wedstrijden_tekst": wedstrijden,
-                        "stand_tekst": stand,
-                    }
-                    bestand = UITVOERMAP / f"nttb_{naam}.json"
-                    bestand.write_text(json.dumps(gegevens, ensure_ascii=False, indent=2), encoding="utf-8")
-                    print(f"GELUKT: {bestand.name}", flush=True)
-                except Exception as fout:
-                    fouten.append(team)
-                    print(f"FOUT bij {team}: {type(fout).__name__}: {fout}", file=sys.stderr, flush=True)
-                finally:
-                    pagina.close()
+            for team, poule, bestand in TEAMS:
+                if not ophalen(browser, team, poule, bestand):
+                    mislukt.append(team)
         finally:
             browser.close()
-    if fouten:
-        print("Niet alle poules konden worden opgehaald: " + ", ".join(fouten), file=sys.stderr)
+
+    if mislukt:
+        print("Niet gelukt:", ", ".join(mislukt))
         sys.exit(1)
-    print("Beide NTTB-bestanden bijgewerkt.")
+
+    print("Beide NTTB-poules succesvol opgehaald!")
 
 
 if __name__ == "__main__":
