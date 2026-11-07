@@ -84,7 +84,7 @@ def main():
     mislukt = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)
 
         try:
             for team, poule, bestand in TEAMS:
